@@ -1,5 +1,10 @@
 import asyncio
-from ..models.agent import Agent 
+from models.agent import Agent 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+print("Loaded API Key:", os.getenv("OPENAI_API_KEY"))  # debugging step
 
 async def main():
     # create an agent instance with a name and a prompt

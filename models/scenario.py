@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from typing import Optional
-from ..config import DEFAULT_VOICE_ID
+from config import DEFAULT_VOICE_ID
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 @dataclass
 class Scenario:

@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from typing import Optional
-from ..config import DEFAULT_VOICE_ID
+from config import DEFAULT_VOICE_ID
 from openai import OpenAI
-from ..config import DEFAULT_VOICE_ID, OPENAI_API_KEY
+from config import DEFAULT_VOICE_ID, OPENAI_API_KEY
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 @dataclass
 class Agent:
