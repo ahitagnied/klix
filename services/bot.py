@@ -2,27 +2,29 @@ from twilio.rest import Client
 from openai import OpenAI
 from ..config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER, YOUR_WEBHOOK_URL
 from ..models.agent import Agent
+from twilio.twiml.voice_response import VoiceResponse, Say, Start, Stream
+from ..models.scenario import Scenario
 
 class CallBot:
-    def __init__(self):
+    def __init__(self, agent: Agent, scenario: Scenario):
+        self.agent = agent
+        self.scenario = scenario
         self.twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
     
-    async def handle_call(self, agent: Agent, phone_number: str):
-        # Initialize call with Twilio
-        try:
-            call = self.twilio_client.calls.create(
-                to=phone_number,
-                from_=YOUR_TWILIO_NUMBER,
-                url=YOUR_WEBHOOK_URL
-            )
-            return call.sid
-        except Exception as e:
-            raise Exception(f"Failed to initiate call: {str(e)}")
+    def generate_twiml():
+        response = VoiceResponse()
 
-    async def process_audio(self, audio_chunk):
-        # Process incoming audio
-        # Convert speech to text
-        # Get AI response
-        # Convert response to speech
+
+
+    async def make_call():
         pass
+
+    async def handle_websocket(self, websocket):
+        # 1. Get audio from call
+        # 2. Convert to text
+        response = await self.agent.get_response(text)
+        # 3. Convert response to audio
+        # 4. Send back to call
+
+    
