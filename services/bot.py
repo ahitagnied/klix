@@ -15,16 +15,12 @@ class CallBot:
     def generate_twiml():
         response = VoiceResponse()
 
-
-
-    async def make_call():
-        pass
-
-    async def handle_websocket(self, websocket):
+    async def handle_websocket(self, websocket, text):
         # 1. Get audio from call
         # 2. Convert to text
         response = await self.agent.get_response(text)
         # 3. Convert response to audio
         # 4. Send back to call
 
-    
+    async def make_call():
+        pass
