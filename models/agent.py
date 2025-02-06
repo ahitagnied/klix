@@ -2,9 +2,10 @@ from dataclasses import dataclass
 from typing import Optional
 from config import DEFAULT_VOICE_ID
 from openai import OpenAI
-from config import DEFAULT_VOICE_ID, OPENAI_API_KEY
+from config import DEFAULT_VOICE_ID, OPENAI_API_KEY, OPENAI_PROJECT_ID
 from dotenv import load_dotenv
-import os
+import asyncio
+from pathlib import Path
 
 load_dotenv()
 
@@ -26,14 +27,23 @@ class Agent:
         """
         initialise an open ai agent client that the call bot will call
         """
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
-        
+        # initialize client based on api key type
+        if OPENAI_API_KEY.startswith('sk-proj-'):
+            self.client = OpenAI(
+                api_key=OPENAI_API_KEY,
+                organization=OPENAI_PROJECT_ID  # required for project api keys
+            )
+        else:
+            self.client = OpenAI(api_key=OPENAI_API_KEY)
+
         # create an assistant
         self.assistant = self.client.beta.assistants.create(
             name=self.name,
             instructions=self.prompt,
-            model="gpt-4o"        
+            model="gpt-4-turbo",
         )
+
+        print(f"assistant created: id = {self.assistant.id}")  # debugging line
 
         # get assistant 
         self.assistant_id = getattr(self.assistant, 'id', None)
@@ -52,7 +62,7 @@ class Agent:
         if self.thread_id is None:
             raise ValueError("Thread ID could not be initialized.")
 
-    async def get_reponse(self, user_input: str) -> str:
+    async def get_response(self, user_input: str) -> str:
         """
         get a response from the defined agent based on the user input
 
@@ -63,7 +73,7 @@ class Agent:
             resposne (str): the response of the assistant to the user input
         """
         # add a message to the thread
-        message = self.client.beta.threads.message.create(
+        message = self.client.beta.threads.messages.create(
             thread_id=self.thread_id,
             role="user",
             content=user_input
