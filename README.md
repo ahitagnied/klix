@@ -1,4 +1,4 @@
-# klix: AI Voice Agent Evaluation System
+# klix
 
 This project aims to build a system for evaluating the performance of AI voice agents.  It allows for real-time interaction with an agent via a phone call, transcribes the conversation, and provides feedback based on predefined criteria. This is inspired by the need for faster bug detection and performance analysis in AI voice agents, similar to the approach taken by Fixa (YC F24).
 
@@ -98,8 +98,3 @@ Contributions are welcome!  Please open issues or submit pull requests.
 ## Testing
 
 Unit and integration tests are located in the `tests` directory.  Run tests using `pytest`.
-
-
-
-
-*README.md was made with [Etchr](https://etchr.dev)*
