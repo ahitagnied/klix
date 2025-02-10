@@ -11,6 +11,7 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 
 # Application settings (hardcoded defaults)
 DEFAULT_VOICE_ID = "default-voice-id"
+YOUR_TWILIO_NUMBER=os.getenv("YOUR_TWILIO_NUMBER")
 SERVER_PORT = 8765
 MAX_RETRIES = 3
 AUDIO_CHUNK_SIZE = 1024
