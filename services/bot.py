@@ -12,7 +12,7 @@ from typing import Optional
 root_dir = Path(__file__).parent.parent  # go up one level from current file
 sys.path.append(str(root_dir))
 
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER, YOUR_WEBHOOK_URL
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER
 from models.agent import Agent
 
 from dotenv import load_dotenv
@@ -140,7 +140,7 @@ class CallBot:
         try:
             # create a temporary file with the audio data
             # note: you'll need to handle the audio format conversion if needed
-            response = self.agent.client.audio.transcriptions.create(
+            response = await self.agent.client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_data
             )
@@ -154,7 +154,7 @@ class CallBot:
         convert text to audio using openai tts.
         """
         try:
-            response = self.agent.client.audio.speech.create(
+            response = await self.agent.client.audio.speech.create(
                 model="tts-1",
                 voice=self.agent.voice_id,
                 input=text
