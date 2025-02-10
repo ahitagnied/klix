@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from openai.types.chat import ChatCompletionMessageParam
 
 @dataclass

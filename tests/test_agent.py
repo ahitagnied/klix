@@ -1,42 +1,62 @@
+import unittest
 import asyncio
-import os
+from unittest.mock import Mock, patch, MagicMock, MagicMock
 import sys
 from pathlib import Path
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# add the project root directory to Python path
+root_dir = Path(__file__).parent.parent  # go up one level from current file
+sys.path.append(str(root_dir))
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DEFAULT_VOICE_ID = "your_default_voice_id"  # if needed
+from models.agent import Agent
+from config import OPENAI_API_KEY
 
-# Get the absolute path to your project root
-PROJECT_ROOT = Path(__file__).parent.parent.absolute()
-sys.path.insert(0, str(PROJECT_ROOT))
+class TestAgent(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.test_name = "test agent"
+        self.test_prompt = "you are a test assistant"
+        self.test_api_key = "test-api-key"
 
-from models.agent import Agent 
-from dotenv import load_dotenv
+    def create_mock_client(self):
+        mock_client = MagicMock()
+        # set up your mock client expectations
+        mock_assistant = MagicMock()
+        mock_assistant.id = "test-assistant-id"
+        mock_client.beta.assistants.create.return_value = mock_assistant
 
-load_dotenv()
-print("Project root:", PROJECT_ROOT)
-print("Python path:", sys.path)
-print("Loaded API Key:", os.getenv("OPENAI_API_KEY"))
+        mock_thread = MagicMock()
+        mock_thread.id = "test-thread-id"
+        mock_client.beta.threads.create.return_value = mock_thread
 
-async def main():
-    # create an agent instance with a name and a prompt
-    agent = Agent(
-        name="Test Agent",
-        prompt="You are a helpful assistant. How can I assist you today?"
-    )
-    
-    # define a sample user input
-    user_input = "Hello, can you tell me a joke?"
-    
-    try:
-        response = await agent.get_response(user_input)
-        print("Assistant Response:", response)
-    except Exception as e:
-        print("An error occurred:", e)
+        mock_run = MagicMock()
+        mock_run.status = "completed"
+        mock_client.beta.threads.runs.create.return_value = mock_run
+        mock_client.beta.threads.runs.retrieve.return_value = mock_run
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        mock_message = MagicMock()
+        mock_message.role = "assistant"
+        mock_message.content = [MagicMock(text=MagicMock(value="test response"))]
+        mock_messages = MagicMock()
+        mock_messages.data = [mock_message]
+        mock_client.beta.threads.messages.list.return_value = mock_messages
+
+        return mock_client
+
+    @patch("models.agent.OpenAI")  # patch where it's actually imported in agent.py
+    async def test_get_response(self, mock_openai):
+        mock_openai.return_value = self.create_mock_client()
+        
+        agent = Agent(
+            name=self.test_name,
+            prompt=self.test_prompt,
+            api_key=self.test_api_key
+        )
+
+        try:
+            response = await agent.get_response("test input")
+            self.assertEqual(response, "test response")
+        finally:
+            await agent.close()
+
+if __name__ == '__main__':
+    unittest.main()
