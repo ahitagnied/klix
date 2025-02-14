@@ -57,6 +57,8 @@ class CallBot:
         
         start.append(stream)
         response.append(start)
+
+        response.pause(length=3600)
         
         return response
 
@@ -91,7 +93,7 @@ class CallBot:
                     if transcript:
                         # get response from agent
                         response = await self.agent.get_response(transcript)
-                        
+                        print(response)
                         # convert response to audio using openai tts
                         audio_response = await self._convert_text_to_audio(response)
                         
@@ -144,6 +146,7 @@ class CallBot:
                 model="whisper-1",
                 file=audio_data
             )
+            print(response.text)
             return response.text
         except Exception as e:
             print(f"error converting audio to text: {str(e)}")
