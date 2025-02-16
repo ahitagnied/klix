@@ -1,4 +1,7 @@
 # klix
+<p align="center">
+  <img src="klix.png" alt="Alt text" width="175"/>
+</p>
 
 This project aims to build a system for evaluating the performance of AI voice agents.  It allows for real-time interaction with an agent via a phone call, transcribes the conversation, and provides feedback based on predefined criteria. This is inspired by the need for faster bug detection and performance analysis in AI voice agents, similar to the approach taken by Fixa (YC F24).
 

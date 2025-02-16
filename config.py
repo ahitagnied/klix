@@ -18,4 +18,4 @@ AUDIO_CHUNK_SIZE = 1024
 SAMPLE_RATE = 16000
 
 # API endpoints
-TWILIO_WEBHOOK_URL = "https://your-webhook-url.com"
+TWILIO_WEBHOOK_URL = os.getenv("TWILIO_WEBHOOK_URL")
