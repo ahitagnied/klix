@@ -7,12 +7,14 @@ from pathlib import Path
 import asyncio
 import json
 from typing import Optional
+import base64
+import io
 
 # add the project root to the Python path
 root_dir = Path(__file__).parent.parent  # go up one level from current file
 sys.path.append(str(root_dir))
 
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER, TWILIO_WEBHOOK_URL
 from models.agent import Agent
 
 from dotenv import load_dotenv
@@ -49,7 +51,7 @@ class CallBot:
         
         # start streaming
         start = Start()
-        stream = Stream(name='audio_stream', url=f'{self.webhook_url}/stream')
+        stream = Stream(name='audio_stream', url=TWILIO_WEBHOOK_URL)
         
         # set stream parameters
         stream.parameter(name='direction', value='duplex')
@@ -85,10 +87,15 @@ class CallBot:
                 elif data.get('event') == 'media':
                     if not call_sid:
                         continue
-                        
-                    # convert audio chunk to text using openai whisper
-                    audio_data = data.get('media').get('payload')
-                    transcript = await self._convert_audio_to_text(audio_data)
+                    
+                    # decode from base64
+                    base64_payload = data['media']['payload']
+                    raw_audio = base64.b64decode(base64_payload)
+                    # if your openai library wants a file-like object:
+                    audio_file = io.BytesIO(raw_audio)
+                    audio_file.name = "audio.webm"  # or .wav, etc.
+
+                    transcript = await self._convert_audio_to_text(audio_file)
                     
                     if transcript:
                         # get response from agent
@@ -101,7 +108,7 @@ class CallBot:
                         await websocket.send(json.dumps({
                             'event': 'media',
                             'media': {
-                                'payload': audio_response
+                                'payload': base64.b64encode(audio_response).decode('utf-8')
                             }
                         }))
                 
