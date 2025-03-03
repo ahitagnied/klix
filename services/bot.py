@@ -1,221 +1,193 @@
 from twilio.rest import Client
-from openai import OpenAI
 from twilio.twiml.voice_response import VoiceResponse, Say, Start, Stream
-from dataclasses import dataclass
 from fastapi import WebSocket, WebSocketDisconnect
-import sys
-from pathlib import Path
+from dataclasses import dataclass
 import asyncio
 import json
-from typing import Optional
-import base64
-import io
+import os
+import sys
+from pathlib import Path
 
-# add the project root to the Python path
-root_dir = Path(__file__).parent.parent  # go up one level from current file
+# add the project root to the python path
+root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER, TWILIO_WEBHOOK_URL
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, YOUR_TWILIO_NUMBER, TWILIO_WEBHOOK_URL, DEEPGRAM_API_KEY, CARTESIA_API_KEY
+
+# import pipecat modules
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import EndFrame, EndTaskFrame
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.serializers.twilio import TwilioFrameSerializer
+from pipecat.services.cartesia import CartesiaTTSService
+from pipecat.services.deepgram import DeepgramSTTService
+from pipecat.services.openai import OpenAILLMService
+from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketParams, FastAPIWebsocketTransport
+
 from models.agent import Agent
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class CallBot:
     def __init__(self, agent: Agent, twilio_account_sid: str, twilio_auth_token: str, 
                  twilio_number: str, webhook_url: str):
         """
         initialize callbot with an agent and twilio credentials.
-        
-        args:
-            agent: an instance of the agent class
-            twilio_account_sid: twilio account sid
-            twilio_auth_token: twilio auth token
-            twilio_number: your twilio phone number
-            webhook_url: webhook url for handling real-time audio
         """
         self.agent = agent
         self.twilio_number = twilio_number
-        self.webhook_url = webhook_url
+        self.webhook_url = webhook_url  # base url for your streaming endpoint
         self.twilio_client = Client(twilio_account_sid, twilio_auth_token)
-        self.active_calls = {}  # store active call sessions
-        
-    def generate_twiml(self) -> VoiceResponse:
+        self.active_calls = {}  # tracking active calls
+
+    def generate_twiml(self) -> str:
         """
-        generate twiml for initial call setup with websocket streaming.
+        generate twiml for call setup with websocket streaming.
         """
         response = VoiceResponse()
-        
-        # start with a greeting
-        response.say("Hello, I'm connecting you with an AI assistant.")
-        
-        # start streaming
+        response.say("hello, i'm connecting you with an ai assistant.")
+
         start = Start()
-        stream = Stream(name='audio_stream', url=f"{TWILIO_WEBHOOK_URL}/ws/stream")
-        
-        # set stream parameters
-        stream.parameter(name='direction', value='duplex')
-        stream.parameter(name='mediaFormat', value='audio/webm')
-        
+        # the streaming url should point to your fastapi websocket endpoint.
+        stream = Stream(name="audio_stream", url=f"{self.webhook_url}/ws/stream")
+        stream.parameter(name="direction", value="duplex")
+        stream.parameter(name="mediaformat", value="audio/webm")
         start.append(stream)
         response.append(start)
 
+        # hold the call open for a while.
         response.pause(length=3600)
-        
-        return response
-    
-    async def handle_websocket(self, websocket: WebSocket, path: str):
+        return str(response)
+
+    async def run_pipeline(self, websocket: WebSocket, call_sid: str):
         """
-        handle websocket connection for real-time audio streaming.
-        
-        args:
-            websocket: the websocket connection object.
-            path: the websocket path.
+        set up and run the pipecat pipeline using the connected websocket.
+        """
+        # initialize twilio streaming transport with pipecat.
+        transport = FastAPIWebsocketTransport(
+            websocket=websocket,
+            params=FastAPIWebsocketParams(
+                audio_out_enabled=True,
+                add_wav_header=False,
+                vad_enabled=True,
+                vad_analyzer=SileroVADAnalyzer(),
+                vad_audio_passthrough=True,
+                serializer=TwilioFrameSerializer(call_sid),  # using call_sid as stream identifier
+            ),
+        )
+
+        # set up the openai llm service.
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY") or "", model="gpt-4o")
+        # register an end_call function so that the llm can trigger call termination.
+        llm.register_function("end_call", self.end_call)
+
+        # optionally, define any tools (functions) your llm may call.
+        tools = [
+            {
+                "name": "end_call",
+                "description": "ends the call when invoked."
+            }
+        ]
+
+        # set up stt and tts services.
+        stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+        tts = CartesiaTTSService(
+            api_key=os.getenv("CARTESIA_API_KEY") or "",
+            voice_id=self.agent.voice_id,
+        )
+
+        # build the initial conversation context.
+        messages = [
+            {"role": "system", "content": self.agent.prompt},
+            {"role": "system", "content": "you are connected to an ai voice assistant."},
+            {"role": "system", "content": "please end the call if the user says goodbye."}
+        ]
+        context = OpenAILLMContext(messages, tools)
+        context_aggregator = llm.create_context_aggregator(context)
+
+        # build the pipeline with the following stages:
+        pipeline = Pipeline([
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            transport.output(),
+            context_aggregator.assistant(),
+        ])
+
+        # create and run the pipeline task.
+        task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
+        runner = PipelineRunner(handle_sigint=False)
+        await runner.run(task)
+
+        # after the pipeline run ends, you can do any cleanup here.
+        return messages
+
+    async def end_call(self, function_name, tool_call_id, args, llm, context, result_callback):
+        """
+        called from the llm to end the call.
+        """
+        print("ending call per llm request.")
+        # update the call with twilio to hang up.
+        try:
+            self.twilio_client.calls(args.get("call_sid")).update(twiml="<response><hangup/></response>")
+        except Exception as e:
+            print(f"error ending call: {e}")
+        # send an end-task frame upstream.
+        await llm.push_frame(EndTaskFrame(), None)
+
+    
+    async def handle_websocket(self, websocket: WebSocket):
+        """
+        handle an incoming websocket connection for a call.
+        this method sets up and runs the pipecat pipeline.
         """
         call_sid = None
-        print("websocket connected!")
         try:
+            # wait for messages until a "start" event is received.
             while True:
-                # receive a text message (twilio sends json in text frames)
-                message_str = await websocket.receive_text()
-                print("debug: raw message received:", message_str)
-                data = json.loads(message_str)
-                event = data.get('event')
-                if event == 'start':
-                    call_sid = data.get('call_sid')
-                    self.active_calls[call_sid] = {
-                        'websocket': websocket,
-                        'transcript': ''
-                    }
-
-                elif event == 'media':
-                    if not call_sid:
-                        continue
-                    base64_payload = data['media']['payload']
-                    raw_audio = base64.b64decode(base64_payload)
-
-                    audio_file = io.BytesIO(raw_audio)
-                    audio_file.name = "audio.webm"  # or audio.wav, etc.
-
-                    transcript = await self._convert_audio_to_text(audio_file)
-                    if transcript:
-                        # get response from agent
-                        response_text = await self.agent.get_response(transcript)
-                        print(f"user said: {transcript}")
-                        print(f"agent replied: {response_text}")
-
-                        # convert response to audio
-                        audio_response = await self._convert_text_to_audio(response_text)
-                        # send base64-encoded audio back
-                        # await websocket.send_text(json.dumps({
-                        #     "event": "media",
-                        #     "media": {
-                        #         "payload": base64.b64encode(audio_response).decode("utf-8")
-                        #     }
-                        # }))
-                        new_twiml = f"<Response><Say>{response_text}</Say></Response>"
-                        self.twilio_client.calls(call_sid).update(twiml=new_twiml)
-
-                elif event == 'stop':
-                    if call_sid and call_sid in self.active_calls:
-                        del self.active_calls[call_sid]
-                    break  # end the loop because the call ended
-
+                message = await websocket.receive_text()
+                print("debug: message received:", message)
+                data = json.loads(message)
+                event = data.get("event")
+                if event == "connected":
+                    print("debug: received connected event, waiting for start event")
+                    continue
+                elif event == "start":
+                    # extract call sid from the nested "start" field.
+                    start_data = data.get("start", {})
+                    call_sid = start_data.get("callSid") or start_data.get("call_sid")
+                    if call_sid is None:
+                        print("debug: start event received but no call sid found; keys:", list(data.keys()))
+                        return
+                    self.active_calls[call_sid] = {"websocket": websocket}
+                    print(f"call started with sid: {call_sid}")
+                    break
+                else:
+                    print(f"debug: received unexpected event '{event}', ignoring")
+            # run the pipecat pipeline with this websocket and call_sid.
+            await self.run_pipeline(websocket, call_sid)
         except WebSocketDisconnect:
             print("websocket disconnected")
-            if call_sid and call_sid in self.active_calls:
-                del self.active_calls[call_sid]
         except Exception as e:
             print(f"error in websocket handler: {e}")
+        finally:
             if call_sid and call_sid in self.active_calls:
                 del self.active_calls[call_sid]
 
-    async def make_call(self, to_number: str) -> Optional[str]:
+    async def make_call(self, to_number: str) -> str:
         """
-        initiate a call to the specified number.
-        
-        args:
-            to_number: the phone number to call
-            
-        returns:
-            str: call sid if successful, none otherwise
+        initiate an outbound call using twilio.
         """
         try:
             call = self.twilio_client.calls.create(
                 to=to_number,
                 from_=self.twilio_number,
-                twiml=str(self.generate_twiml())
+                twiml=self.generate_twiml()
             )
             return call.sid
         except Exception as e:
-            print(f"error making call: {str(e)}")
+            print(f"error making call: {e}")
             return None
-
-    async def _convert_audio_to_text(self, audio_data: bytes) -> str:
-        """
-        convert audio data to text using openai whisper.
-        """
-        print("debug: _convert_audio_to_text called")
-        try:
-            audio_len = len(audio_data.getvalue())
-            print(f"debug: received audio data of length {audio_len} bytes")
-            if audio_len == 0:
-                print("debug: audio_data is empty, nothing to transcribe")
-                return ""
-            # print(f"debug: about to transcribe audio chunk of size {audio_len} bytes")
-            # create a temporary file with the audio data
-            # note: you'll need to handle the audio format conversion if needed
-            response = self.agent.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_data
-            )
-            if not response or not response.text:
-                print("debug: whisper returned no text")
-            else:
-                print(f"debug: whisper transcription result: {response.text}")
-            return response.text
-        except Exception as e:
-            print(f"error converting audio to text: {str(e)}")
-            return ""
-
-    async def _convert_text_to_audio(self, text: str) -> bytes:
-        """
-        convert text to audio using openai tts.
-        """
-        try:
-            print(f"debug: about to generate audio for text: '{text}'")
-            response = self.agent.client.audio.speech.create(
-                model="tts-1",
-                voice=self.agent.voice_id,
-                input=text
-            )
-            if not response or not getattr(response, "content", None):
-                print("debug: tts response missing or empty")
-            else:
-                print(f"debug: tts returned {len(response.content)} bytes")
-            return response.content
-        except Exception as e:
-            print(f"error converting text to audio: {str(e)}")
-            return b""
-
-    async def close(self):
-        """
-        clean up resources and end all active calls.
-        """
-        try:
-            # end all active calls
-            for call_sid in self.active_calls:
-                try:
-                    self.twilio_client.calls(call_sid).update(status="completed")
-                except Exception as e:
-                    print(f"error ending call {call_sid}: {str(e)}")
-            
-            # clear active calls
-            self.active_calls.clear()
-            
-            # close agent
-            await self.agent.close()
-            
-        except Exception as e:
-            print(f"error during cleanup: {str(e)}")
