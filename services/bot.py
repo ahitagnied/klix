@@ -80,7 +80,6 @@ class CallBot:
                 # receive a text message (twilio sends json in text frames)
                 message_str = await websocket.receive_text()
                 data = json.loads(message_str)
-                print(data)
                 event = data.get('event')
                 if event == 'start':
                     call_sid = data.get('call_sid')
@@ -102,8 +101,8 @@ class CallBot:
                     if transcript:
                         # get response from agent
                         response_text = await self.agent.get_response(transcript)
-                        print(f"user said: {transcript}")
-                        print(f"agent replied: {response_text}")
+                        # print(f"user said: {transcript}")
+                        # print(f"agent replied: {response_text}")
 
                         # convert response to audio
                         audio_response = await self._convert_text_to_audio(response_text)
@@ -159,11 +158,14 @@ class CallBot:
             print(f"debug: about to transcribe audio chunk of size {audio_len} bytes")
             # create a temporary file with the audio data
             # note: you'll need to handle the audio format conversion if needed
-            response = await self.agent.client.audio.transcriptions.create(
+            response = self.agent.client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_data
             )
-            print(f"debug: whisper transcription result: {response.text}")
+            if not response or not response.text:
+                print("debug: whisper returned no text")
+            else:
+                print(f"debug: whisper transcription result: {response.text}")
             return response.text
         except Exception as e:
             print(f"error converting audio to text: {str(e)}")
@@ -175,12 +177,15 @@ class CallBot:
         """
         try:
             print(f"debug: about to generate audio for text: '{text}'")
-            response = await self.agent.client.audio.speech.create(
+            response = self.agent.client.audio.speech.create(
                 model="tts-1",
                 voice=self.agent.voice_id,
                 input=text
             )
-            print("debug: successfully generated tts audio")
+            if not response or not getattr(response, "content", None):
+                print("debug: tts response missing or empty")
+            else:
+                print(f"debug: tts returned {len(response.content)} bytes")
             return response.content
         except Exception as e:
             print(f"error converting text to audio: {str(e)}")

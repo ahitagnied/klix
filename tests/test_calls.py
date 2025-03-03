@@ -11,10 +11,10 @@ from models.agent import Agent
 from services.bot import CallBot
 
 # Create an instance of your Agent (customize this as needed)
-agent = Agent(name='test', prompt='you are a helpful agent, engage in a conversation', api_key=OPENAI_API_KEY, voice_id=DEFAULT_VOICE_ID)
+agent = Agent(name='test', prompt='you are a helpful agent, engage in a conversation', api_key=OPENAI_API_KEY, voice_id='sage')
 
 # Replace with your actual webhook base URL (e.g., using ngrok for local testing)
-webhook_url = "https://your-webhook-url.com"
+webhook_url = "wss://d72d-168-4-86-45.ngrok-free.app"
 
 # Create the CallBot instance
 callbot = CallBot(
