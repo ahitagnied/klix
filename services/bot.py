@@ -79,6 +79,7 @@ class CallBot:
             while True:
                 # receive a text message (twilio sends json in text frames)
                 message_str = await websocket.receive_text()
+                print("debug: raw message received:", message_str)
                 data = json.loads(message_str)
                 event = data.get('event')
                 if event == 'start':
@@ -101,18 +102,20 @@ class CallBot:
                     if transcript:
                         # get response from agent
                         response_text = await self.agent.get_response(transcript)
-                        # print(f"user said: {transcript}")
-                        # print(f"agent replied: {response_text}")
+                        print(f"user said: {transcript}")
+                        print(f"agent replied: {response_text}")
 
                         # convert response to audio
                         audio_response = await self._convert_text_to_audio(response_text)
                         # send base64-encoded audio back
-                        await websocket.send_text(json.dumps({
-                            "event": "media",
-                            "media": {
-                                "payload": base64.b64encode(audio_response).decode("utf-8")
-                            }
-                        }))
+                        # await websocket.send_text(json.dumps({
+                        #     "event": "media",
+                        #     "media": {
+                        #         "payload": base64.b64encode(audio_response).decode("utf-8")
+                        #     }
+                        # }))
+                        new_twiml = f"<Response><Say>{response_text}</Say></Response>"
+                        self.twilio_client.calls(call_sid).update(twiml=new_twiml)
 
                 elif event == 'stop':
                     if call_sid and call_sid in self.active_calls:
@@ -153,9 +156,14 @@ class CallBot:
         """
         convert audio data to text using openai whisper.
         """
+        print("debug: _convert_audio_to_text called")
         try:
             audio_len = len(audio_data.getvalue())
-            print(f"debug: about to transcribe audio chunk of size {audio_len} bytes")
+            print(f"debug: received audio data of length {audio_len} bytes")
+            if audio_len == 0:
+                print("debug: audio_data is empty, nothing to transcribe")
+                return ""
+            # print(f"debug: about to transcribe audio chunk of size {audio_len} bytes")
             # create a temporary file with the audio data
             # note: you'll need to handle the audio format conversion if needed
             response = self.agent.client.audio.transcriptions.create(
