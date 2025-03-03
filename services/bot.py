@@ -2,6 +2,7 @@ from twilio.rest import Client
 from openai import OpenAI
 from twilio.twiml.voice_response import VoiceResponse, Say, Start, Stream
 from dataclasses import dataclass
+from fastapi import WebSocket, WebSocketDisconnect
 import sys
 from pathlib import Path
 import asyncio
@@ -51,7 +52,7 @@ class CallBot:
         
         # start streaming
         start = Start()
-        stream = Stream(name='audio_stream', url=TWILIO_WEBHOOK_URL)
+        stream = Stream(name='audio_stream', url=f"{TWILIO_WEBHOOK_URL}/ws/stream")
         
         # set stream parameters
         stream.parameter(name='direction', value='duplex')
@@ -63,61 +64,68 @@ class CallBot:
         response.pause(length=3600)
         
         return response
-
-    async def handle_websocket(self, websocket, path):
+    
+    async def handle_websocket(self, websocket: WebSocket, path: str):
         """
         handle websocket connection for real-time audio streaming.
         
         args:
-            websocket: websocket connection object
-            path: websocket path
+            websocket: the websocket connection object.
+            path: the websocket path.
         """
         call_sid = None
+        print("websocket connected!")
         try:
-            async for message in websocket:
-                data = json.loads(message)
-                
-                if data.get('event') == 'start':
+            while True:
+                # receive a text message (twilio sends json in text frames)
+                message_str = await websocket.receive_text()
+                data = json.loads(message_str)
+                print(data)
+                event = data.get('event')
+                if event == 'start':
                     call_sid = data.get('call_sid')
                     self.active_calls[call_sid] = {
                         'websocket': websocket,
                         'transcript': ''
                     }
-                
-                elif data.get('event') == 'media':
+
+                elif event == 'media':
                     if not call_sid:
                         continue
-                    
-                    # decode from base64
                     base64_payload = data['media']['payload']
                     raw_audio = base64.b64decode(base64_payload)
-                    # if your openai library wants a file-like object:
+
                     audio_file = io.BytesIO(raw_audio)
-                    audio_file.name = "audio.webm"  # or .wav, etc.
+                    audio_file.name = "audio.webm"  # or audio.wav, etc.
 
                     transcript = await self._convert_audio_to_text(audio_file)
-                    
                     if transcript:
                         # get response from agent
-                        response = await self.agent.get_response(transcript)
-                        print(response)
-                        # convert response to audio using openai tts
-                        audio_response = await self._convert_text_to_audio(response)
-                        
-                        # send audio back through websocket
-                        await websocket.send(json.dumps({
-                            'event': 'media',
-                            'media': {
-                                'payload': base64.b64encode(audio_response).decode('utf-8')
+                        response_text = await self.agent.get_response(transcript)
+                        print(f"user said: {transcript}")
+                        print(f"agent replied: {response_text}")
+
+                        # convert response to audio
+                        audio_response = await self._convert_text_to_audio(response_text)
+                        # send base64-encoded audio back
+                        await websocket.send_text(json.dumps({
+                            "event": "media",
+                            "media": {
+                                "payload": base64.b64encode(audio_response).decode("utf-8")
                             }
                         }))
-                
-                elif data.get('event') == 'stop':
+
+                elif event == 'stop':
                     if call_sid and call_sid in self.active_calls:
                         del self.active_calls[call_sid]
-                    
+                    break  # end the loop because the call ended
+
+        except WebSocketDisconnect:
+            print("websocket disconnected")
+            if call_sid and call_sid in self.active_calls:
+                del self.active_calls[call_sid]
         except Exception as e:
-            print(f"error in websocket handler: {str(e)}")
+            print(f"error in websocket handler: {e}")
             if call_sid and call_sid in self.active_calls:
                 del self.active_calls[call_sid]
 
@@ -147,13 +155,15 @@ class CallBot:
         convert audio data to text using openai whisper.
         """
         try:
+            audio_len = len(audio_data.getvalue())
+            print(f"debug: about to transcribe audio chunk of size {audio_len} bytes")
             # create a temporary file with the audio data
             # note: you'll need to handle the audio format conversion if needed
             response = await self.agent.client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_data
             )
-            print(response.text)
+            print(f"debug: whisper transcription result: {response.text}")
             return response.text
         except Exception as e:
             print(f"error converting audio to text: {str(e)}")
@@ -164,11 +174,13 @@ class CallBot:
         convert text to audio using openai tts.
         """
         try:
+            print(f"debug: about to generate audio for text: '{text}'")
             response = await self.agent.client.audio.speech.create(
                 model="tts-1",
                 voice=self.agent.voice_id,
                 input=text
             )
+            print("debug: successfully generated tts audio")
             return response.content
         except Exception as e:
             print(f"error converting text to audio: {str(e)}")
