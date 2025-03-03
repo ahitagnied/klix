@@ -13,8 +13,8 @@ try:
         ],
         max_tokens=10
     )
-    print("Test API Response:", response.choices[0].message.content) 
+    print("test api response:", response.choices[0].message.content) 
 except Exception as e:
-    print("API Error:", e)
+    print("api error:", e)
 
 
