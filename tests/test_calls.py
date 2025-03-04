@@ -1,4 +1,4 @@
-import os
+# tests/test_calls.py
 import asyncio
 import sys
 from pathlib import Path
@@ -15,16 +15,14 @@ from config import (
 )
 
 async def test_make_call():
-    """test making an outbound call."""
-    # Create an agent
+    """Test making an outbound call."""
     agent = Agent(
-        name="test agent",
-        prompt="You are a test AI assistant. Keep your responses brief and end the call after 2-3 exchanges.",
+        name="Test Agent",
+        prompt="You are a test AI assistant. Keep responses brief and end the call after a few exchanges.",
         voice_id=DEFAULT_VOICE_ID,
         api_key=OPENAI_API_KEY
     )
     
-    # Create a callbot
     bot = CallBot(
         agent=agent,
         twilio_account_sid=TWILIO_ACCOUNT_SID,
@@ -33,16 +31,14 @@ async def test_make_call():
         webhook_url=TWILIO_WEBHOOK_URL
     )
     
-    # Phone number to call - replace with a real phone number
-    to_number = "+16824035658"  # Replace with target phone number
-    
-    # Make the call
+    # Replace with a real phone number for testing.
+    to_number = "+16824035658"
     print(f"Making test call to {to_number}...")
     call_sid = await bot.make_call(to_number)
     
     if call_sid:
         print(f"Call initiated with SID: {call_sid}")
-        print("The call is now in progress. Check the server logs for details.")
+        print("The call is now in progress. Check the server logs for conversation details.")
     else:
         print("Failed to initiate call")
 
