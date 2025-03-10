@@ -90,7 +90,7 @@ The application's configuration is managed through the `config.py` file, which l
 
 ## Dependencies
 
-The project's dependencies are listed in the `requirements.txt` file.  Install them using `pip install -r requirements.txt`.
+The project's dependencies will be listed in the `requirements.txt` file, upon completion. Install them using `pip install -r requirements.txt`. Essentially, they are Deepgram, Cartesia, OpenAI API, Twilio.
 
 
 ## Contributing
